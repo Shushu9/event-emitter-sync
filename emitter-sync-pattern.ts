@@ -62,26 +62,82 @@ class EventHandler extends EventStatistics<EventName> {
   // Feel free to edit this class
 
   repository: EventRepository;
+  accumulatedEvents: Map<EventName, number>;
+  syncStarted = false;
 
   constructor(emitter: EventEmitter<EventName>, repository: EventRepository) {
     super();
     this.repository = repository;
+    this.accumulatedEvents = new Map<EventName, number>();
 
     emitter.subscribe(EventName.EventA, () =>
-      this.repository.saveEventData(EventName.EventA, 1)
+      this.handleEvent(EventName.EventA)
     );
+
+    emitter.subscribe(EventName.EventB, () =>
+      this.handleEvent(EventName.EventB)
+    );
+
   }
+
+  async handleEvent(eventName: EventName) {
+    this.setStats(eventName, this.getStats(eventName) + 1);
+    this.accumulateEvent(eventName);
+    if (!this.syncStarted) {
+      this.syncStarted = true;
+      this.syncEvents()
+      setInterval(() => this.syncEvents(), 1000) // test fires every 1000 sec.
+    }
+  }
+
+  accumulateEvent(eventName: EventName) {
+    this.accumulatedEvents.set(eventName, (this.accumulatedEvents.get(eventName) || 0) + 1)
+  }
+
+  async syncEvents() {
+    for (const [eventName, count] of this.accumulatedEvents.entries()) {
+      try {
+        await this.repository.saveEventData(eventName, count);
+        this.accumulatedEvents.set(eventName, 0);
+      } catch (e) {
+        // console.log(e, 'error');
+      }
+    }
+  }
+}
+
+enum EventRepositoryError {
+  TOO_MANY = "Too many requests",
+  RESPONSE_FAIL = "Response delivery fail",
+  REQUEST_FAIL = "Request fail",
 }
 
 class EventRepository extends EventDelayedRepository<EventName> {
   // Feel free to edit this class
 
-  async saveEventData(eventName: EventName, _: number) {
-    try {
-      await this.updateEventStatsBy(eventName, 1);
-    } catch (e) {
-      // const _error = e as EventRepositoryError;
-      // console.warn(error);
+  counter = 0;
+
+  async saveEventData(eventName: EventName, count: number) {
+    let attempt = 0;
+    this.counter += count;
+
+    while (attempt < 5) {
+      try {
+        await this.updateEventStatsBy(eventName, this.counter);
+        this.counter = 0;
+        return;
+      } catch (e) {
+        attempt++;
+
+        if (e == EventRepositoryError.RESPONSE_FAIL) {
+          return;
+        } else if (attempt > 5) {
+          throw e;
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          // console.log('attemp failed');
+        }
+      }
     }
   }
 }
