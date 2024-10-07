@@ -35,6 +35,10 @@ function assertItWorks() {
       EventName.EventFail,
       handler.getStats(EventName.EventFail) + 1
     );
+    repository.setStats(
+      EventName.EventFail,
+      repository.getStats(EventName.EventFail) + 1
+    );
   });
 
   const resultsTester = new ResultsTester({
